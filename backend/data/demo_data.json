@@ -1,0 +1,41 @@
+{
+  "hospitals": [
+    {"id":"ASTR","name":"Aster General Hospital","city":"Bengaluru","state":"Karnataka","type":"General"},
+    {"id":"STMA","name":"St. Martha's Medical Center","city":"Bengaluru","state":"Karnataka","type":"General"},
+    {"id":"LAKE","name":"Lakeside Care Hospital","city":"Mysuru","state":"Karnataka","type":"Regional"},
+    {"id":"NORTH","name":"Northstar Children's Hospital","city":"Bengaluru","state":"Karnataka","type":"Specialty"},
+    {"id":"COAST","name":"Coastal Health Institute","city":"Mangaluru","state":"Karnataka","type":"General"}
+  ],
+  "medicines": [
+    {"id":"NOREPI","name":"Norepinephrine 4 mg / 4 mL","unit":"ampoules","criticality":"Critical","primary_supplier_id":"KMS"},
+    {"id":"MEROPENEM","name":"Meropenem 1 g","unit":"vials","criticality":"High","primary_supplier_id":"KMS"},
+    {"id":"INSULIN","name":"Insulin glargine 100 U/mL","unit":"vials","criticality":"High","primary_supplier_id":"CHUB"},
+    {"id":"CEFTRIAXONE","name":"Ceftriaxone 1 g","unit":"vials","criticality":"High","primary_supplier_id":"KMS"},
+    {"id":"SALINE","name":"Sodium chloride 0.9%, 1 L","unit":"bags","criticality":"Standard","primary_supplier_id":"WES"}
+  ],
+  "inventory": [
+    ["ASTR","NOREPI",48,24,24],["ASTR","MEROPENEM",130,18,54],["ASTR","INSULIN",74,8,24],["ASTR","CEFTRIAXONE",168,20,60],["ASTR","SALINE",420,60,180],
+    ["STMA","NOREPI",90,18,90],["STMA","MEROPENEM",92,20,60],["STMA","INSULIN",64,8,24],["STMA","CEFTRIAXONE",110,22,66],["STMA","SALINE",340,55,165],
+    ["LAKE","NOREPI",132,20,60],["LAKE","MEROPENEM",126,15,45],["LAKE","INSULIN",58,6,18],["LAKE","CEFTRIAXONE",148,16,48],["LAKE","SALINE",460,40,120],
+    ["NORTH","NOREPI",60,15,45],["NORTH","MEROPENEM",84,12,36],["NORTH","INSULIN",52,7,21],["NORTH","CEFTRIAXONE",94,16,48],["NORTH","SALINE",250,40,120],
+    ["COAST","NOREPI",78,13,39],["COAST","MEROPENEM",105,15,45],["COAST","INSULIN",70,7,21],["COAST","CEFTRIAXONE",142,17,51],["COAST","SALINE",375,45,135]
+  ],
+  "suppliers": [
+    {"id":"KMS","name":"Deccan MedSupply","city":"Bengaluru","reliability":96,"status":"Available"},
+    {"id":"CHUB","name":"Central Pharma Hub","city":"Hyderabad","reliability":94,"status":"Available"},
+    {"id":"SCM","name":"SouthCross Medicines","city":"Coimbatore","reliability":91,"status":"Available"},
+    {"id":"WES","name":"Westline Hospital Supply","city":"Mangaluru","reliability":89,"status":"Available"}
+  ],
+  "supplier_medicines": [
+    ["KMS","NOREPI",42.5,0,2],["CHUB","NOREPI",46,180,2],["SCM","NOREPI",44,90,3],["WES","NOREPI",48,45,2],
+    ["KMS","MEROPENEM",86,140,2],["CHUB","MEROPENEM",91,120,2],["SCM","MEROPENEM",89,90,3],
+    ["CHUB","INSULIN",118,160,2],["KMS","INSULIN",122,110,3],["WES","INSULIN",121,70,2],
+    ["KMS","CEFTRIAXONE",18,220,2],["SCM","CEFTRIAXONE",20,140,2],["WES","CEFTRIAXONE",21,90,1],
+    ["WES","SALINE",11,260,1],["KMS","SALINE",12,180,2],["CHUB","SALINE",13,220,3]
+  ],
+  "shipments": [
+    {"id":"SHP-104","source_type":"supplier","source_id":"KMS","source_label":"Deccan MedSupply","destination_id":"ASTR","medicine_id":"CEFTRIAXONE","quantity":80,"status":"In Transit","eta_hours":6.5,"route":{"name":"Bengaluru city medical corridor","mode":"Temperature-controlled van","distance_km":18,"eta_hours":6.5,"capacity":120,"simulated":true}},
+    {"id":"SHP-108","source_type":"supplier","source_id":"WES","source_label":"Westline Hospital Supply","destination_id":"NORTH","medicine_id":"INSULIN","quantity":24,"status":"Delayed","eta_hours":14,"route":{"name":"Coastal highway / Bengaluru","mode":"Temperature-controlled van","distance_km":350,"eta_hours":14,"capacity":100,"simulated":true}},
+    {"id":"SHP-112","source_type":"hospital","source_id":"LAKE","source_label":"Lakeside Care Hospital","destination_id":"ASTR","medicine_id":"SALINE","quantity":60,"status":"Delivered","eta_hours":0,"route":{"name":"Mysuru - Bengaluru corridor","mode":"Medical van","distance_km":150,"eta_hours":4.2,"capacity":120,"simulated":true}}
+  ]
+}

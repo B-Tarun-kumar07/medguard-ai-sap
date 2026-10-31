@@ -52,6 +52,25 @@ Open http://127.0.0.1:5173. The API reference is at http://127.0.0.1:8000/docs.
 
 For a local production-style build, run `npm run build`, then start the backend without `--reload`. FastAPI serves the built page at http://127.0.0.1:8000.
 
+## Deploy the hackathon demo to Render
+
+The repository includes a Docker build and `render.yaml` Blueprint. Once this commit is on GitHub:
+
+1. Open the Render Dashboard and choose **New → Blueprint**.
+2. Connect `prajwalg0106-afk/medguard-ai` and select the `main` branch.
+3. Review the `medguard-ai` web service and its 1 GB persistent disk, then create the Blueprint.
+4. Wait for the first deploy to finish. Render uses `/api/health` as its health check; the resulting `https://<service-name>.onrender.com` URL serves the frontend and API from one service.
+5. Open the service's Environment page to view the generated `MEDGUARD_ADMIN_KEY` if you need the demo workbook download.
+
+The Blueprint uses a persistent disk because Render's normal service filesystem is ephemeral. Persistent disks require a paid web service and prevent horizontal scaling; review current Render pricing before creating it. This deployment is for the synthetic hackathon demo only. It does not make the shared demo endpoints suitable for real pharmacy records, and it does not add production identity, PostgreSQL, or live supplier/carrier integrations.
+
+To build and run the same container locally:
+
+~~~powershell
+docker build -t medguard-ai .
+docker run --rm -p 8000:10000 -v medguard-data:/var/data -e MEDGUARD_ADMIN_KEY=choose-a-local-demo-key medguard-ai
+~~~
+
 ## Pharmacy workspace
 
 After signing in, open **My pharmacy workspace**. It provides pharmacy-isolated inventory, batch and movement history, demand estimates, in-app notices, and inventory import. The read-only account can view but cannot receive batches, import stock, or record movements.
@@ -154,7 +173,7 @@ npm run build
 - SQLite is for a single-machine demo. The project has not migrated to PostgreSQL/SQLAlchemy/Alembic, and does not include production identity, password reset, MFA, email verification, or deployment secrets management.
 - No Supabase, supplier, carrier, SMS/email, SAP, government, or live medicine catalogue integration is connected. Supplier quantities, order acknowledgements, and routes in the shared demo are simulated.
 - The local demo admin key protects only the workbook endpoint; it is not an account role or a production authorization system.
-- No cloud deployment has been configured. Hosting credentials, a managed database, identity provider, and authorized supplier/carrier APIs are required for those steps.
+- A Render Docker Blueprint is configured for a persistent-disk demo deployment, but no Render account has been connected and no cloud deployment has been created yet. A managed database, identity provider, and authorized supplier/carrier APIs remain unconfigured.
 - This prototype is not a clinical tool and does not claim legal or regulatory compliance. A healthcare security, privacy, and regulatory review is required before using real pharmacy operations.
 - Reviewer names are audit labels, not identity verification or enterprise authorization.
 - Delivery status is presenter-controlled and is not a real carrier event.

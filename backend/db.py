@@ -6,13 +6,14 @@ import uuid
 import hashlib
 import secrets
 import shutil
+import os
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "medguard.sqlite3"
+DB_PATH = Path(os.environ.get("MEDGUARD_DB_PATH", str(BASE_DIR / "medguard.sqlite3")))
 SEED_PATH = BASE_DIR / "data" / "demo_data.json"
 
 DEFAULT_SETTINGS = {

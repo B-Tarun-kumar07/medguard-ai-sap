@@ -1,5 +1,7 @@
 import React, { useState } from "react";
-import { ArrowDown, ArrowRight, Check, Clock3, MapPin, Package, Route, Truck } from "lucide-react";
+import { ArrowRight, Check, Clock3, MapPin, Package, Route, Truck } from "lucide-react";
+import ShipmentMap from "../ShipmentMap";
+import ShipmentDriverJourney from "../ShipmentDriverJourney";
 import { api } from "../api";
 import { Badge, Card, EmptyState, PageHeading, RiskBadge, fmt, formatDate } from "../components";
 
@@ -82,6 +84,8 @@ export default function Transportation({ data, run }) {
                 <div><span>Destination</span><strong>{item.destination_name}</strong><small>{item.destination_city}</small></div>
               </div>
               <ShipmentRoute item={item} />
+<ShipmentMap item={item} />
+<ShipmentDriverJourney item={item} run={run} />
               <div style={{display:"flex",justifyContent:"space-between",gap:8,padding:"8px 14px",color:"#60716a",fontSize:12}}>{["Approved","Dispatched","In Transit","Delivered"].map((step,index)=><span key={step} style={{fontWeight:(["Approved","Dispatched","In Transit","Delivered"].indexOf(item.status)>=index)?700:400,color:(["Approved","Dispatched","In Transit","Delivered"].indexOf(item.status)>=index)?"#39785e":"#9ba59f"}}>{index+1}. {step}</span>)}</div>
               {item.timeline?.length > 0 && <div style={{padding:"4px 14px 10px",display:"grid",gap:5}}>{item.timeline.map((event,index)=><small key={index} style={{color:"#728078"}}><strong>{event.status}</strong> · {formatDate(event.created_at)}</small>)}</div>}
               <div className="shipment-footer">

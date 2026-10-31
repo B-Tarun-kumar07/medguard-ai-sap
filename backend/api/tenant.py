@@ -16,7 +16,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -65,6 +65,18 @@ class PurchaseOrderRequest(BaseModel):
     medicine_id: str
     supplier_id: str
     quantity: int = Field(ge=1, le=100000)
+
+
+class HospitalMedicineRequest(BaseModel):
+    donor_hospital_id: str | None = None
+    medicine_id: str
+    quantity: float = Field(gt=0, le=100000)
+    message: str = Field(default="", max_length=500)
+
+
+class HospitalRequestDecision(BaseModel):
+    decision: Literal["accept", "decline"]
+    response_note: str = Field(default="", max_length=500)
 
 
 def _expires() -> str:
@@ -375,6 +387,161 @@ def import_commit(hospital_id: str, payload: ImportRequest, user: dict = Depends
                 (db.new_id("MOV"), hospital_id, item["medicine_id"], batch_id, "receipt", item["quantity"], f"Import: {payload.file_name}", user["display_name"], db.now_iso()))
         db.record_audit(connection, "inventory.import", user["display_name"], f"Imported {len(preview['valid_rows'])} validated batch rows from {payload.file_name}.", "pharmacy", hospital_id, {"file_name": payload.file_name, "rows": len(preview["valid_rows"]), "simulated": True})
     return {"imported": len(preview["valid_rows"]), "message": "Validated inventory import completed."}
+
+
+def _available_to_share(connection, donor_hospital_id: str, medicine_id: str, exclude_request_id: str | None = None) -> float:
+    inventory = connection.execute(
+        "SELECT current_stock,safety_stock FROM inventory WHERE hospital_id=? AND medicine_id=?",
+        (donor_hospital_id, medicine_id),
+    ).fetchone()
+    if not inventory:
+        return 0.0
+    reserved_shipments = connection.execute(
+        "SELECT COALESCE(SUM(quantity),0) FROM shipments WHERE source_type='hospital' AND source_id=? AND medicine_id=? AND status='Approved'",
+        (donor_hospital_id, medicine_id),
+    ).fetchone()[0]
+    pending_sql = "SELECT COALESCE(SUM(quantity),0) FROM hospital_requests WHERE donor_hospital_id=? AND medicine_id=? AND status='pending'"
+    pending_args: tuple = (donor_hospital_id, medicine_id)
+    if exclude_request_id:
+        pending_sql += " AND id<>?"
+        pending_args += (exclude_request_id,)
+    pending_requests = connection.execute(pending_sql, pending_args).fetchone()[0]
+    return max(0.0, float(inventory["current_stock"]) - float(inventory["safety_stock"]) - float(reserved_shipments) - float(pending_requests))
+
+
+@router.get("/tenant/{hospital_id}/request-options")
+def hospital_request_options(hospital_id: str, medicine_id: str = Query(...), user: dict = Depends(require_session)):
+    _assert_access(user, hospital_id)
+    with db.connect() as connection:
+        if not connection.execute("SELECT 1 FROM medicines WHERE id=?", (medicine_id,)).fetchone():
+            raise HTTPException(404, "Medicine was not found.")
+        donors = connection.execute(
+            "SELECT h.id,h.name,h.city FROM hospitals h WHERE h.id<>? ORDER BY h.name", (hospital_id,)
+        ).fetchall()
+        return [{
+            "hospital_id": donor["id"], "hospital_name": donor["name"], "city": donor["city"],
+            "available_quantity": _available_to_share(connection, donor["id"], medicine_id),
+        } for donor in donors]
+
+
+@router.get("/tenant/{hospital_id}/requests")
+def hospital_requests(hospital_id: str, user: dict = Depends(require_session)):
+    _assert_access(user, hospital_id)
+    with db.connect() as connection:
+        rows = connection.execute(
+            """SELECT r.*,requester.name AS requester_name,donor.name AS donor_name,m.name AS medicine_name,m.unit
+               FROM hospital_requests r
+               JOIN hospitals requester ON requester.id=r.requester_hospital_id
+               LEFT JOIN hospitals donor ON donor.id=r.donor_hospital_id
+               JOIN medicines m ON m.id=r.medicine_id
+               WHERE r.requester_hospital_id=? OR r.donor_hospital_id=?
+                  OR (r.donor_hospital_id IS NULL AND r.status='pending')
+               ORDER BY CASE r.status WHEN 'pending' THEN 0 ELSE 1 END,r.created_at DESC""",
+            (hospital_id, hospital_id),
+        ).fetchall()
+        output = []
+        for row in rows:
+            item = dict(row)
+            item["can_respond"] = row["requester_hospital_id"] != hospital_id and row["status"] == "pending"
+            item["is_open"] = row["donor_hospital_id"] is None
+            output.append(item)
+        return output
+
+
+@router.post("/tenant/{hospital_id}/requests")
+def create_hospital_request(hospital_id: str, payload: HospitalMedicineRequest, user: dict = Depends(require_session)):
+    _assert_access(user, hospital_id, write=True)
+    if payload.donor_hospital_id == hospital_id:
+        raise HTTPException(422, "Choose a different hospital or request from any hospital.")
+    with db.connect() as connection:
+        medicine = connection.execute("SELECT name,unit FROM medicines WHERE id=?", (payload.medicine_id,)).fetchone()
+        if not medicine:
+            raise HTTPException(404, "Medicine was not found.")
+        requester = connection.execute("SELECT name FROM hospitals WHERE id=?", (hospital_id,)).fetchone()
+        if payload.donor_hospital_id:
+            donor = connection.execute("SELECT name FROM hospitals WHERE id=?", (payload.donor_hospital_id,)).fetchone()
+            if not donor:
+                raise HTTPException(404, "The selected hospital was not found.")
+            available = _available_to_share(connection, payload.donor_hospital_id, payload.medicine_id)
+            if payload.quantity > available:
+                raise HTTPException(409, f"That hospital can currently offer up to {available:g} {medicine['unit']} above its safety stock.")
+            recipients = [payload.donor_hospital_id]
+        else:
+            recipients = [row["id"] for row in connection.execute("SELECT id FROM hospitals WHERE id<>?", (hospital_id,)).fetchall()]
+
+        now = db.now_iso()
+        request_id = db.new_id("HREQ")
+        connection.execute(
+            """INSERT INTO hospital_requests(id,requester_hospital_id,donor_hospital_id,medicine_id,quantity,message,status,requested_by,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,'pending',?,?,?)""",
+            (request_id, hospital_id, payload.donor_hospital_id, payload.medicine_id, payload.quantity,
+             payload.message.strip(), user["display_name"], now, now),
+        )
+        for recipient_id in recipients:
+            connection.execute(
+                "INSERT INTO notifications(id,hospital_id,kind,severity,title,message,status,simulated,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (db.new_id("NTF"), recipient_id, "medicine_request", "Info", "Medicine request received",
+                 f"{requester['name']} requested {payload.quantity:g} {medicine['unit']} of {medicine['name']}.", "unread", 0, now),
+            )
+        db.record_audit(connection, "hospital_request.created", user["display_name"],
+            f"Requested {payload.quantity:g} {medicine['unit']} of {medicine['name']} from {payload.donor_hospital_id or 'any available hospital'}.",
+            "hospital_request", request_id, {"requester_hospital_id": hospital_id, "donor_hospital_id": payload.donor_hospital_id, "medicine_id": payload.medicine_id})
+        return {"request_id": request_id, "status": "pending", "message": "Request sent to the selected hospital(s)."}
+
+
+@router.post("/tenant/{hospital_id}/requests/{request_id}/decision")
+def decide_hospital_request(hospital_id: str, request_id: str, payload: HospitalRequestDecision, user: dict = Depends(require_session)):
+    _assert_access(user, hospital_id, write=True)
+    with db.connect() as connection:
+        request = connection.execute(
+            """SELECT r.*,m.name medicine_name,m.unit,requester.name requester_name,donor.name donor_name
+               FROM hospital_requests r JOIN medicines m ON m.id=r.medicine_id
+               JOIN hospitals requester ON requester.id=r.requester_hospital_id
+               LEFT JOIN hospitals donor ON donor.id=r.donor_hospital_id WHERE r.id=?""",
+            (request_id,),
+        ).fetchone()
+        if not request or request["requester_hospital_id"] == hospital_id:
+            raise HTTPException(404, "Incoming medicine request was not found.")
+        if request["donor_hospital_id"] not in (None, hospital_id):
+            raise HTTPException(403, "This request was addressed to a different hospital.")
+        if request["status"] != "pending":
+            raise HTTPException(409, "This medicine request has already been answered.")
+        if request["donor_hospital_id"] is None and payload.decision == "decline":
+            raise HTTPException(422, "Open requests stay visible to other hospitals; only a named recipient can decline a request.")
+
+        now = db.now_iso()
+        shipment_id = None
+        if payload.decision == "accept":
+            available = _available_to_share(connection, hospital_id, request["medicine_id"], request_id)
+            if float(request["quantity"]) > available:
+                raise HTTPException(409, f"Not enough transferable stock remains. Available above safety stock: {available:g} {request['unit']}.")
+            donor = connection.execute("SELECT name,city FROM hospitals WHERE id=?", (hospital_id,)).fetchone()
+            recipient = connection.execute("SELECT name,city FROM hospitals WHERE id=?", (request["requester_hospital_id"],)).fetchone()
+            shipment_id = db.new_id("SHP")
+            eta_hours = 4.0
+            eta = (datetime.now(timezone.utc) + timedelta(hours=eta_hours)).isoformat(timespec="seconds").replace("+00:00", "Z")
+            route = {"name": f"{donor['city']} to {recipient['city']} inter-hospital route", "mode": "Medical courier", "distance_km": 0, "eta_hours": eta_hours, "simulated": True}
+            connection.execute(
+                """INSERT INTO shipments(id,recommendation_id,source_type,source_id,source_label,destination_id,medicine_id,quantity,status,eta_hours,expected_arrival,route_json,created_at)
+                   VALUES (?,NULL,'hospital',?,?,?,?,?,'Approved',?,?,?,?)""",
+                (shipment_id, hospital_id, donor["name"], request["requester_hospital_id"], request["medicine_id"], request["quantity"], eta_hours, eta, json.dumps(route), now),
+            )
+        donor_hospital_id = hospital_id if request["donor_hospital_id"] is None else request["donor_hospital_id"]
+        status = "accepted" if payload.decision == "accept" else "declined"
+        connection.execute(
+            "UPDATE hospital_requests SET donor_hospital_id=?,status=?,responded_by=?,response_note=?,shipment_id=?,updated_at=? WHERE id=? AND status='pending'",
+            (donor_hospital_id, status, user["display_name"], payload.response_note.strip(), shipment_id, now, request_id),
+        )
+        request_message = (f"{donor['name']} accepted your request. Shipment {shipment_id} is awaiting dispatch." if payload.decision == "accept" else f"{request['donor_name']} declined your request.")
+        connection.execute(
+            "INSERT INTO notifications(id,hospital_id,kind,severity,title,message,status,simulated,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (db.new_id("NTF"), request["requester_hospital_id"], "medicine_request", "Info",
+             "Medicine request accepted" if payload.decision == "accept" else "Medicine request declined", request_message, "unread", 0, now),
+        )
+        db.record_audit(connection, f"hospital_request.{status}", user["display_name"],
+            f"{status.title()} request for {request['quantity']:g} {request['unit']} of {request['medicine_name']} from {request['requester_name']}.",
+            "hospital_request", request_id, {"shipment_id": shipment_id, "decision": payload.decision})
+        return {"request_id": request_id, "status": status, "shipment_id": shipment_id}
 
 
 @router.get("/tenant/import-template.csv")

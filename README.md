@@ -51,6 +51,28 @@ npm run dev
 
 Open http://127.0.0.1:5173. The API reference is at http://127.0.0.1:8000/docs.
 
+### Share the demo with another laptop on the same Wi-Fi
+
+One laptop hosts the app and database; the second laptop connects to that same demo. Keep both devices on the same trusted Wi-Fi network.
+
+On the host laptop, start the backend in PowerShell window 1:
+
+~~~powershell
+Set-Location "C:\Users\tarun\medguard-ai"
+.\.venv\Scripts\python.exe -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+~~~
+
+In PowerShell window 2, start the LAN frontend:
+
+~~~powershell
+Set-Location "C:\Users\tarun\medguard-ai"
+npm run dev:lan
+~~~
+
+Find the host laptop's Wi-Fi IPv4 address with `ipconfig` (for example, `192.168.1.25`). On the second laptop, open `http://192.168.1.25:5173`, replacing the example address with the host's address. If Windows Firewall prompts, allow the development server on the **Private network** only. The local app and fictional demo database are shared by both laptops; use the in-app accounts to show different pharmacy views.
+
+This LAN mode is for a trusted demo network and uses plain HTTP. Browser GPS sharing may require HTTPS on the driver's device; localhost's browser exception does not apply to another laptop's LAN address.
+
 For a local production-style build, run `npm run build`, then start the backend without `--reload`. FastAPI serves the built page at http://127.0.0.1:8000.
 
 ## Deploy the hackathon demo to Render
@@ -75,6 +97,8 @@ docker run --rm -p 8000:10000 -v medguard-data:/var/data -e MEDGUARD_ADMIN_KEY=c
 ## Pharmacy workspace
 
 After signing in, open **My pharmacy workspace**. It provides pharmacy-isolated inventory, batch and movement history, demand estimates, in-app notices, and inventory import. The read-only account can view but cannot receive batches, import stock, or record movements.
+
+For a multi-hospital demo, register a separate account for each hospital and choose its hospital during registration. Import each hospital's stock from the **Import** tab. The **Medicine requests** tab flags items at or below their reorder point and lets the hospital broadcast a request to all other hospitals or address one specific hospital. A donor can accept only the transferable quantity above its safety stock; acceptance creates an inter-hospital shipment for dispatch and delivery tracking.
 
 The CSV template is available from the Import tab. For imports, use `medicine_id,batch_number,manufacture_date,expiry_date,quantity,source_label,is_sample`. Upload preview rejects unknown medicines, duplicate batches, and non-positive quantities; confirm the preview to record stock. Dates in imported files are pharmacy-supplied data and are not independently verified. XLSX import supports a standard first worksheet.
 

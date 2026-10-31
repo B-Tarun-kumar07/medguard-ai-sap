@@ -69,7 +69,8 @@ CREATE TABLE IF NOT EXISTS shipments (
   id TEXT PRIMARY KEY, recommendation_id TEXT, source_type TEXT NOT NULL, source_id TEXT,
   source_label TEXT NOT NULL, destination_id TEXT NOT NULL, medicine_id TEXT NOT NULL,
   quantity REAL NOT NULL, status TEXT NOT NULL, eta_hours REAL NOT NULL,
-  expected_arrival TEXT, route_json TEXT NOT NULL, created_at TEXT NOT NULL, delivered_at TEXT
+  expected_arrival TEXT, route_json TEXT NOT NULL, created_at TEXT NOT NULL, delivered_at TEXT,
+  tracking_json TEXT NOT NULL DEFAULT '{}'
 );
 CREATE TABLE IF NOT EXISTS audit_events (
   id TEXT PRIMARY KEY, event_type TEXT NOT NULL, actor TEXT NOT NULL,
@@ -106,6 +107,13 @@ CREATE TABLE IF NOT EXISTS notifications (
   id TEXT PRIMARY KEY, hospital_id TEXT NOT NULL, kind TEXT NOT NULL, severity TEXT NOT NULL,
   title TEXT NOT NULL, message TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'unread',
   simulated INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, read_at TEXT
+);
+CREATE TABLE IF NOT EXISTS hospital_requests (
+  id TEXT PRIMARY KEY, requester_hospital_id TEXT NOT NULL, donor_hospital_id TEXT,
+  medicine_id TEXT NOT NULL, quantity REAL NOT NULL, message TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending', requested_by TEXT NOT NULL,
+  responded_by TEXT, response_note TEXT NOT NULL DEFAULT '', shipment_id TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS purchase_orders (
   id TEXT PRIMARY KEY, hospital_id TEXT NOT NULL, supplier_id TEXT NOT NULL, status TEXT NOT NULL,
@@ -274,15 +282,42 @@ def initialize() -> None:
     backup_path = DB_PATH.with_suffix(".pre_medguard_2_backup.sqlite3")
     if DB_PATH.exists() and not backup_path.exists():
         shutil.copy2(DB_PATH, backup_path)
+
     with connect() as connection:
         connection.executescript(SCHEMA)
-        columns = {row[1] for row in connection.execute("PRAGMA table_info(medicines)")}
+
+        shipment_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(shipments)").fetchall()
+        }
+        if "tracking_json" not in shipment_columns:
+            connection.execute(
+                "ALTER TABLE shipments ADD COLUMN tracking_json TEXT NOT NULL DEFAULT '{}'"
+            )
+
+        columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(medicines)").fetchall()
+        }
+
         if "manufacture_date" not in columns:
-            connection.execute("ALTER TABLE medicines ADD COLUMN manufacture_date TEXT")
+            connection.execute(
+                "ALTER TABLE medicines ADD COLUMN manufacture_date TEXT"
+            )
+
         if "expiry_date" not in columns:
-            connection.execute("ALTER TABLE medicines ADD COLUMN expiry_date TEXT")
-        connection.execute("UPDATE medicines SET manufacture_date=COALESCE(manufacture_date,date('now','-120 day')), expiry_date=COALESCE(expiry_date,date('now','+540 day'))")
-        count = connection.execute("SELECT COUNT(*) FROM hospitals").fetchone()[0]
+            connection.execute(
+                "ALTER TABLE medicines ADD COLUMN expiry_date TEXT"
+            )
+
+        connection.execute(
+            "UPDATE medicines SET manufacture_date=COALESCE(manufacture_date,date('now','-120 day')), expiry_date=COALESCE(expiry_date,date('now','+540 day'))"
+        )
+
+        count = connection.execute(
+            "SELECT COUNT(*) FROM hospitals"
+        ).fetchone()[0]
+
         if count == 0:
             _seed_dataset(connection)
             record_audit(
@@ -291,12 +326,12 @@ def initialize() -> None:
                 "dataset", "demo-data",
                 {"hospitals": 5, "medicines": 5, "supplier_count": 4, "simulated": True},
             )
-        _seed_medguard_two(connection)
 
+        _seed_medguard_two(connection)
 
 def reset_demo() -> None:
     with connect() as connection:
-        for table in ("approvals", "recommendations", "shipments", "sales_transactions", "disruptions", "audit_events",
+        for table in ("approvals", "recommendations", "hospital_requests", "shipments", "sales_transactions", "disruptions", "audit_events",
                       "inventory", "supplier_medicines", "suppliers", "medicines", "hospitals", "settings"):
             connection.execute("DELETE FROM " + table)
         _seed_dataset(connection)

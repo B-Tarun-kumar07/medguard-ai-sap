@@ -1,6 +1,7 @@
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from backend import db
 from backend.api.common import days_until
@@ -8,6 +9,159 @@ from backend.api.common import days_until
 router = APIRouter(prefix="/api")
 
 
+class LocationUpdate(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    accuracy_m: float | None = Field(default=None, ge=0)
+    speed_mps: float | None = Field(default=None, ge=0)
+    heading_deg: float | None = Field(default=None, ge=0, le=360)
+
+
+@router.get("/shipments/{shipment_id}/tracking")
+def get_shipment_tracking(shipment_id: str):
+    with db.connect() as connection:
+        shipment = connection.execute(
+            "SELECT id,status,tracking_json,source_label,destination_id FROM shipments WHERE id=?",
+            (shipment_id,),
+        ).fetchone()
+
+        if not shipment:
+            raise HTTPException(404, "Shipment not found.")
+
+        import json
+
+        tracking = json.loads(shipment["tracking_json"] or "{}")
+
+        return {
+            "shipment_id": shipment["id"],
+            "status": shipment["status"],
+            "tracking": tracking,
+            "source": shipment["source_label"],
+        }
+
+
+@router.post("/shipments/{shipment_id}/location")
+def update_shipment_location(shipment_id: str, location: LocationUpdate):
+    import json
+
+    with db.connect() as connection:
+        shipment = connection.execute(
+            "SELECT status,tracking_json FROM shipments WHERE id=?", (shipment_id,)
+        ).fetchone()
+        if not shipment:
+            raise HTTPException(404, "Shipment not found.")
+        if shipment["status"] not in ("Dispatched", "In Transit", "Delayed"):
+            raise HTTPException(409, "Location can only be shared for an active shipment.")
+
+        tracking = json.loads(shipment["tracking_json"] or "{}")
+        tracking["location"] = {
+            **location.model_dump(exclude_none=True),
+            "recorded_at": db.now_iso(),
+        }
+        tracking["simulated"] = False
+        connection.execute(
+            "UPDATE shipments SET tracking_json=? WHERE id=?",
+            (json.dumps(tracking), shipment_id),
+        )
+        return {"shipment_id": shipment_id, "location": tracking["location"]}
+
+
+@router.post("/shipments/{shipment_id}/location/stop")
+def stop_shipment_location(shipment_id: str):
+    import json
+
+    with db.connect() as connection:
+        shipment = connection.execute(
+            "SELECT tracking_json FROM shipments WHERE id=?", (shipment_id,)
+        ).fetchone()
+        if not shipment:
+            raise HTTPException(404, "Shipment not found.")
+        tracking = json.loads(shipment["tracking_json"] or "{}")
+        tracking.pop("location", None)
+        connection.execute(
+            "UPDATE shipments SET tracking_json=? WHERE id=?",
+            (json.dumps(tracking), shipment_id),
+        )
+        return {"shipment_id": shipment_id, "sharing": False}
+
+
+@router.post("/shipments/{shipment_id}/tracking")
+def update_shipment_tracking(
+    shipment_id: str,
+    stage: Literal[
+        "driver_assigned",
+        "going_to_pickup",
+        "picked_up",
+        "on_the_way",
+        "delivered",
+    ] = Query(...),
+):
+    import json
+    import random
+
+    with db.connect() as connection:
+        shipment = connection.execute(
+            "SELECT * FROM shipments WHERE id=?",
+            (shipment_id,),
+        ).fetchone()
+
+        if not shipment:
+            raise HTTPException(404, "Shipment not found.")
+
+        tracking = json.loads(shipment["tracking_json"] or "{}")
+
+        stages = {
+            "driver_assigned": "Driver assigned",
+            "going_to_pickup": "Going to pickup",
+            "picked_up": "Medicine picked up",
+            "on_the_way": "On the way to hospital",
+            "delivered": "Delivered",
+        }
+
+        tracking.update({
+            "stage": stage,
+            "stage_label": stages[stage],
+            "updated_at": db.now_iso(),
+            "simulated": True,
+        })
+
+        if stage == "driver_assigned":
+            tracking.update({
+                "driver_name": "Arjun Kumar",
+                "vehicle": "Medical delivery van",
+                "vehicle_number": "KA 03 MG 2026",
+            })
+
+        if stage == "on_the_way":
+            tracking.update({
+                "traffic": random.choice(["Light", "Moderate", "Heavy"]),
+                "eta_minutes": random.choice([12, 18, 24, 30, 36]),
+                "progress": 0.05,
+            })
+
+        if stage == "delivered":
+            tracking["progress"] = 1.0
+
+        connection.execute(
+            "UPDATE shipments SET tracking_json=? WHERE id=?",
+            (json.dumps(tracking), shipment_id),
+        )
+
+        db.record_audit(
+            connection,
+            "shipment.updated",
+            "Logistics operator",
+            f"Shipment tracking updated: {stages[stage]}.",
+            "shipment",
+            shipment_id,
+            {"stage": stage, "simulated": True},
+        )
+
+        return {
+            "shipment_id": shipment_id,
+            "tracking": tracking,
+            "message": "Tracking updated successfully.",
+        }
 @router.post("/shipments/{shipment_id}/advance")
 def advance_shipment(
     shipment_id: str,

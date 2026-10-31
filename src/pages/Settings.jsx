@@ -23,9 +23,13 @@ export default function Settings({ data, run }) {
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState("");
   const [sapIntegration, setSapIntegration] = useState(null);
+  const [sapHana, setSapHana] = useState(null);
   useEffect(() => { if (data.settings) setForm(data.settings); }, [data.settings]);
   useEffect(() => {
-    api.sapIntegrationStatus().then(setSapIntegration).catch(() => setSapIntegration(null));
+    api.sapIntegrationStatus().then((status) => {
+      setSapIntegration(status.integration_suite);
+      setSapHana(status.hana);
+    }).catch(() => { setSapIntegration(null); setSapHana(null); });
   }, []);
 
   function update(key, value) { setForm((current) => ({ ...current, [key]: value })); }
@@ -111,6 +115,19 @@ export default function Settings({ data, run }) {
         {sapIntegration?.missing_settings?.length > 0 && <p className="provider-limit">Missing backend settings: {sapIntegration.missing_settings.join(", ")}</p>}
       </Card>
 
+      <Card title="SAP HANA Cloud" subtitle="Optional direct shipment-event log in your Hackfest HANA database.">
+        <div className={"connection-result " + (sapHana?.configured ? "connection-ok" : "connection-off")}>
+          <span className={sapHana?.configured ? "online-dot" : "offline-dot"} />
+          <span><strong>{sapHana?.configured ? "Credentials configured" : "Not configured — local demo remains active"}</strong>
+            <small>{sapHana?.configured
+              ? `Shipment status events will be written to the configured HANA endpoint on port ${sapHana.port}.`
+              : "Set SAP_HANA_USER and SAP_HANA_PASSWORD on the backend. The connection uses encrypted TLS on port 443."}</small>
+          </span>
+        </div>
+        {sapHana?.missing_settings?.length > 0 && <p className="provider-limit">Missing backend settings: {sapHana.missing_settings.join(", ")}</p>}
+        <p className="provider-limit"><CircleHelp size={14} />The backend creates MEDGUARD_SHIPMENT_EVENTS if your database user has table-creation permission. HANA errors never stop local shipment updates.</p>
+      </Card>
+
       <Card title="Other SAP extension points" subtitle="Additional SAP products can be added as separate adapters when a tenant and API are available.">
         <div className="sap-adapter-grid">
           {sapSystems.map((item) => {
@@ -118,7 +135,7 @@ export default function Settings({ data, run }) {
             return <div className="sap-adapter" key={item.name}><span className="sap-adapter-icon"><Icon size={17} /></span><div><div className="sap-adapter-title"><strong>{item.name}</strong><Badge tone="neutral">Planned adapter</Badge></div><span>{item.area}</span><p>{item.adapter}</p></div></div>;
           })}
         </div>
-        <div className="sap-disclaimer"><ShieldCheck size={15} /><span>SAP IBP, SAP Ariba, SAP Transportation Management, and Joule remain planned adapters. The Integration Suite connector only forwards configured shipment status events.</span></div>
+        <div className="sap-disclaimer"><ShieldCheck size={15} /><span>SAP IBP, SAP Ariba, SAP Transportation Management, and Joule remain planned adapters. Configured SAP shipment adapters forward status events only.</span></div>
       </Card>
 
       <Card title="Learning resources referenced" subtitle="Based on the Learning Assets page in the supplied Participant Guide.">

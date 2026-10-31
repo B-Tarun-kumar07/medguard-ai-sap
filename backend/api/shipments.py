@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from backend import db
 from backend.api.common import days_until
 from backend.integrations.sap import publish_shipment_status
+from backend.integrations.sap_hana import publish_shipment_status as publish_hana_shipment_status
 
 router = APIRouter(prefix="/api")
 
@@ -249,6 +250,15 @@ def advance_shipment(
             "SELECT expected_arrival FROM shipments WHERE id=?", (shipment_id,)
         ).fetchone()
         background_tasks.add_task(publish_shipment_status, {
+            "shipment_id": shipment_id,
+            "status": status,
+            "source": shipment["source_label"],
+            "destination_id": shipment["destination_id"],
+            "medicine_id": shipment["medicine_id"],
+            "quantity": float(shipment["quantity"]),
+            "expected_arrival": current_shipment["expected_arrival"],
+        })
+        background_tasks.add_task(publish_hana_shipment_status, {
             "shipment_id": shipment_id,
             "status": status,
             "source": shipment["source_label"],

@@ -34,6 +34,7 @@ class DatabaseAdapterTests(unittest.TestCase):
             self.assertEqual(row["name"], "Norepinephrine")
             self.assertEqual(row[0], 1)
 
+    
     def test_executemany_and_fetchall(self):
         with self.engine.begin() as raw:
             connection = DatabaseConnection(raw)
@@ -53,6 +54,18 @@ class DatabaseAdapterTests(unittest.TestCase):
             self.assertEqual(len(rows), 2)
             self.assertEqual(rows[1]["name"], "Lakeside")
             self.assertEqual(rows[1][0], 2)
+
+    def test_question_mark_inside_string_is_not_parameter(self):
+        with self.engine.begin() as raw:
+            connection = DatabaseConnection(raw)
+
+            row = connection.execute(
+                "SELECT '?' AS question, ? AS answer",
+                (42,),
+            ).fetchone()
+
+            self.assertEqual(row["question"], "?")
+            self.assertEqual(row["answer"], 42)
 
 
 if __name__ == "__main__":

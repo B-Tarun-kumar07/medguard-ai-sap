@@ -54,17 +54,42 @@ class DatabaseConnection:
     def __init__(self, connection: Connection):
         self._connection = connection
 
+   
     @staticmethod
     def _convert_sql(sql: str) -> str:
+        """Convert positional placeholders outside SQL strings."""
+        result = []
         index = 0
+        in_single = False
+        in_double = False
+        i = 0
 
-        def replace_placeholder(match):
-            nonlocal index
-            name = f"p{index}"
-            index += 1
-            return f":{name}"
+        while i < len(sql):
+            char = sql[i]
 
-        return re.sub(r"\?", replace_placeholder, sql)
+            if char == "'" and not in_double:
+                result.append(char)
+                if in_single and i + 1 < len(sql) and sql[i + 1] == "'":
+                    result.append(sql[i + 1])
+                    i += 2
+                    continue
+                in_single = not in_single
+
+            elif char == '"' and not in_single:
+                in_double = not in_double
+                result.append(char)
+
+            elif char == "?" and not in_single and not in_double:
+                result.append(f":p{index}")
+                index += 1
+
+            else:
+                result.append(char)
+
+            i += 1
+
+        return "".join(result)
+
 
     def execute(self, sql: str, parameters: Any = ()):
         converted_sql = self._convert_sql(sql)

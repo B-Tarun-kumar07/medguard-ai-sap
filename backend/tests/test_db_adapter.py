@@ -2,7 +2,7 @@
 import unittest
 
 from sqlalchemy import create_engine
-
+from sqlalchemy import create_engine, text
 from backend.db_adapter import DatabaseConnection
 
 
@@ -66,6 +66,29 @@ class DatabaseAdapterTests(unittest.TestCase):
 
             self.assertEqual(row["question"], "?")
             self.assertEqual(row["answer"], 42)
+
+    def test_transaction_rolls_back_on_error(self):
+        with self.engine.begin() as raw:
+            connection = DatabaseConnection(raw)
+            connection.execute(
+                "CREATE TABLE rollback_test (id INTEGER)"
+            )
+
+        with self.assertRaises(Exception):
+            with self.engine.begin() as raw:
+                connection = DatabaseConnection(raw)
+                connection.execute(
+                    "INSERT INTO rollback_test (id) VALUES (?)",
+                    (1,),
+                )
+                raise RuntimeError("Simulated failure")
+
+        with self.engine.connect() as raw:
+            count = raw.execute(
+                text("SELECT COUNT(*) FROM rollback_test")
+            ).scalar_one()
+
+        self.assertEqual(count, 0)
 
 
 if __name__ == "__main__":

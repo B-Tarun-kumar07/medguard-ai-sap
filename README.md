@@ -202,6 +202,8 @@ MedGuard can also append shipment status events to the Hackfest SAP HANA Cloud d
 
 Set `SAP_HANA_HOST`, `SAP_HANA_PORT`, `SAP_HANA_USER`, and `SAP_HANA_PASSWORD` in the backend environment. The `.env.example` contains the Hackfest endpoint host visible in HANA Cloud Central; do not commit real credentials. Access to the endpoint may be limited to the SAP practice environment, so laptop connectivity must be confirmed separately.
 
+The System settings page includes a read-only **Test HANA connection** action. It verifies network reachability, TLS, and database login without writing shipment or inventory data.
+
 ~~~powershell
 $env:SAP_INTEGRATION_SUITE_SHIPMENT_URL = "https://your-integration-suite-host/http/medguard/shipment-events"
 $env:SAP_OAUTH_TOKEN_URL = "https://your-auth-host/oauth/token"

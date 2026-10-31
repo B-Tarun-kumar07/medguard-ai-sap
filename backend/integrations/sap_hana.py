@@ -29,6 +29,50 @@ def configuration_status() -> dict:
     }
 
 
+def test_connection() -> dict:
+    """Perform a read-only login check and return a user-safe diagnostic."""
+    status = configuration_status()
+    if not status["configured"]:
+        return {"connected": False, "message": "Add the HANA database user and password in the backend environment first."}
+
+    connection = None
+    try:
+        from hdbcli import dbapi
+
+        connection = dbapi.connect(
+            address=os.getenv("SAP_HANA_HOST", DEFAULT_HOST),
+            port=int(os.getenv("SAP_HANA_PORT", "443")),
+            user=os.environ["SAP_HANA_USER"],
+            password=os.environ["SAP_HANA_PASSWORD"],
+            encrypt=True,
+            sslValidateCertificate=True,
+            connectTimeout=10,
+        )
+        cursor = connection.cursor()
+        cursor.execute("SELECT CURRENT_USER FROM DUMMY")
+        cursor.fetchone()
+        cursor.close()
+        return {"connected": True, "message": "Connected to SAP HANA Cloud. The database login was accepted."}
+    except ModuleNotFoundError:
+        return {"connected": False, "message": "The HANA driver is missing. Run: python -m pip install -r backend\\requirements.txt"}
+    except Exception as error:
+        detail = str(error).lower()
+        logger.warning("SAP HANA connection check failed: %s", error)
+        if any(term in detail for term in ("timeout", "connect failed", "unreachable", "name or service")):
+            message = "The HANA host could not be reached. The Hackfest network may block connections from this laptop."
+        elif any(term in detail for term in ("authentication", "invalid user", "password", "authentication failed")):
+            message = "HANA rejected the database login. Verify the group database user and rotated password."
+        else:
+            message = "HANA connection failed. Check the backend terminal for the diagnostic details."
+        return {"connected": False, "message": message}
+    finally:
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+
 def publish_shipment_status(event: dict) -> None:
     """Append an event to MEDGUARD_SHIPMENT_EVENTS in the configured HANA schema."""
     status = configuration_status()

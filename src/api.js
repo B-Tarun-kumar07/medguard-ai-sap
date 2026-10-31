@@ -39,6 +39,7 @@ export const api = {
   analytics: () => request("/analytics"),
   settings: () => request("/settings"),
   sapIntegrationStatus: () => request("/integrations/sap/status"),
+  checkSapHana: () => request("/integrations/sap/hana/check", { method: "POST" }),
   simulate: (scenario) => request("/disruptions/simulate", { method: "POST", body: { scenario } }),
   reset: () => request("/demo/reset", { method: "POST" }),
   decide: (id, body) => request("/approvals/" + encodeURIComponent(id) + "/decision", { method: "POST", body }),

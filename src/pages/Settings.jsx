@@ -24,6 +24,8 @@ export default function Settings({ data, run }) {
   const [checkError, setCheckError] = useState("");
   const [sapIntegration, setSapIntegration] = useState(null);
   const [sapHana, setSapHana] = useState(null);
+  const [hanaCheck, setHanaCheck] = useState(null);
+  const [checkingHana, setCheckingHana] = useState(false);
   useEffect(() => { if (data.settings) setForm(data.settings); }, [data.settings]);
   useEffect(() => {
     api.sapIntegrationStatus().then((status) => {
@@ -59,6 +61,14 @@ export default function Settings({ data, run }) {
     try { setProvider(await api.checkProvider()); }
     catch (error) { setCheckError(error.message || "Could not check the provider."); }
     finally { setChecking(false); }
+  }
+
+  async function checkHana() {
+    setCheckingHana(true);
+    setHanaCheck(null);
+    try { setHanaCheck(await api.checkSapHana()); }
+    catch (error) { setHanaCheck({ connected: false, message: error.message || "Could not check SAP HANA." }); }
+    finally { setCheckingHana(false); }
   }
 
   return (
@@ -125,6 +135,14 @@ export default function Settings({ data, run }) {
           </span>
         </div>
         {sapHana?.missing_settings?.length > 0 && <p className="provider-limit">Missing backend settings: {sapHana.missing_settings.join(", ")}</p>}
+        <div className="provider-actions">
+          <button className="button button-outline" onClick={checkHana} disabled={checkingHana || !sapHana?.configured}>
+            {checkingHana ? <span className="spinner" /> : <RefreshCw size={14} />}Test HANA connection
+          </button>
+        </div>
+        {hanaCheck && <div className={"connection-result " + (hanaCheck.connected ? "connection-ok" : "connection-off")} role="status">
+          <span className={hanaCheck.connected ? "online-dot" : "offline-dot"} /><span><strong>{hanaCheck.connected ? "HANA connection successful" : "HANA connection failed"}</strong><small>{hanaCheck.message}</small></span>
+        </div>}
         <p className="provider-limit"><CircleHelp size={14} />The backend creates MEDGUARD_SHIPMENT_EVENTS if your database user has table-creation permission. HANA errors never stop local shipment updates.</p>
       </Card>
 

@@ -4,7 +4,7 @@ from backend import db
 from backend.agents.llm import check_ollama
 from backend.api.common import SettingsRequest
 from backend.integrations.sap import configuration_status
-from backend.integrations.sap_hana import configuration_status as hana_configuration_status
+from backend.integrations.sap_hana import configuration_status as hana_configuration_status, test_connection as test_hana_connection
 
 router = APIRouter(prefix="/api")
 
@@ -12,6 +12,11 @@ router = APIRouter(prefix="/api")
 @router.get("/integrations/sap/status")
 def sap_integration_status():
     return {"integration_suite": configuration_status(), "hana": hana_configuration_status()}
+
+
+@router.post("/integrations/sap/hana/check")
+def check_sap_hana_connection():
+    return test_hana_connection()
 
 
 @router.get("/settings")

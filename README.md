@@ -6,9 +6,26 @@ The finale demo starts with a fictional supplier delay, predicts hospital-level 
 
 > Hospitals, inventory, demand, suppliers, prices, routes, events, and shipment updates are fictional simulated data. No live carrier, GPS, supplier, clinical, or SAP system is connected.
 
+## MedGuard AI 2.0 local demo
+
+The local 2.0 workspace adds PBKDF2 password-hashed demo accounts, expiring server-side sessions, pharmacy membership checks on private workspace APIs, batch receipts, stock movement history, CSV/XLSX preview-and-import, in-app notifications, and transparent demand estimates. Existing demo pages for the shared fictional network remain in simulation mode.
+
+The first startup makes a one-time copy of an existing SQLite database to `backend/medguard.pre_medguard_2_backup.sqlite3` before adding tables. It does not reset the existing database. The existing Aster General norepinephrine sale is preserved.
+
+### Demo logins
+
+| Role | Email | Password | Pharmacy access |
+|---|---|---|---|
+| Pharmacy Owner | `owner@aster.demo` | `AsterDemo!2026` | Aster General |
+| Inventory Manager | `manager@lakeside.demo` | `LakesideDemo!2026` | Lakeside Care |
+| Read-only User | `viewer@aster.demo` | `ViewerDemo!2026` | Aster General |
+| Platform Administrator | `admin@medguard.demo` | `MedGuardDemo!2026` | Explicit Aster membership only |
+
+These are public demo credentials for local synthetic data. Change or remove them before any shared deployment. Registration creates a pharmacy staff demo account; password recovery, email verification, and account administration through an identity provider are not configured.
+
 ## Run on Windows
 
-Open PowerShell and install the app dependencies:
+Open PowerShell and install the app dependencies (Node.js 20+ and Python 3.10+):
 
 ~~~powershell
 Set-Location "C:\Users\Prajwal\Documents\Codex\2026-10-28\bas\outputs\medguard-ai"
@@ -33,7 +50,15 @@ npm run dev
 
 Open http://127.0.0.1:5173. The API reference is at http://127.0.0.1:8000/docs.
 
-For a production-style local build, run npm run build, then start the backend without --reload. FastAPI serves the built page at http://127.0.0.1:8000.
+For a local production-style build, run `npm run build`, then start the backend without `--reload`. FastAPI serves the built page at http://127.0.0.1:8000.
+
+## Pharmacy workspace
+
+After signing in, open **My pharmacy workspace**. It provides pharmacy-isolated inventory, batch and movement history, demand estimates, in-app notices, and inventory import. The read-only account can view but cannot receive batches, import stock, or record movements.
+
+The CSV template is available from the Import tab. For imports, use `medicine_id,batch_number,manufacture_date,expiry_date,quantity,source_label,is_sample`. Upload preview rejects unknown medicines, duplicate batches, and non-positive quantities; confirm the preview to record stock. Dates in imported files are pharmacy-supplied data and are not independently verified. XLSX import supports a standard first worksheet.
+
+Demand estimates use recorded sales in the last 30 days when available. With sparse history they fall back to configured demo daily demand and label confidence as low. Reorder suggestions use an illustrative two-day lead time plus safety stock.
 
 ## Finale run-through
 
@@ -52,6 +77,8 @@ Supplier failure and 50% demand spike are repeatable stress tests. Use **Reset d
 ## Features
 
 - React, Vite, Tailwind CSS, FastAPI, Recharts, and local SQLite.
+- Local password-hashed demo accounts, eight-hour sessions, pharmacy memberships, and server-side access checks for private workspace APIs.
+- Batch records, stock receipts/sales/returns/adjustments/damaged/expired movements, CSV/XLSX import preview, and private pharmacy demand estimates.
 - Five defined agents: disruption sensing, scenario planning, inventory allocation, logistics, and compliance/human review.
 - Five hospitals, five medicines, four suppliers, 25 inventory positions, and three sample shipments.
 - Search, filters, risk sorting, coverage chart, and CSV export.
@@ -119,11 +146,16 @@ npm run build
 - **Ollama unavailable:** use Deterministic local agent mode; the workflow remains functional.
 - **Scenario already active:** select Reset demo before starting another event.
 
-## Limitations
+## Integrations, deployment, and limitations
 
 - Fictional static hospitals, quantities, supplier details, quotes, and route estimates.
 - No live traffic, GPS, weather, EMR, medicine master, cold-chain telemetry, supplier portal, purchase order, or clinical decision support.
-- SQLite and the unauthenticated local API are for a single-machine demo, not production.
+- Private pharmacy workspace APIs require a local signed-in session. Shared network simulation routes remain unauthenticated demo endpoints and expose fictional cross-hospital data; do not put real records in this build.
+- SQLite is for a single-machine demo. The project has not migrated to PostgreSQL/SQLAlchemy/Alembic, and does not include production identity, password reset, MFA, email verification, or deployment secrets management.
+- No Supabase, supplier, carrier, SMS/email, SAP, government, or live medicine catalogue integration is connected. Supplier quantities, order acknowledgements, and routes in the shared demo are simulated.
+- The local demo admin key protects only the workbook endpoint; it is not an account role or a production authorization system.
+- No cloud deployment has been configured. Hosting credentials, a managed database, identity provider, and authorized supplier/carrier APIs are required for those steps.
+- This prototype is not a clinical tool and does not claim legal or regulatory compliance. A healthcare security, privacy, and regulatory review is required before using real pharmacy operations.
 - Reviewer names are audit labels, not identity verification or enterprise authorization.
 - Delivery status is presenter-controlled and is not a real carrier event.
 - Forecasts omit expiry, lot, temperature, and broader demand uncertainty. Units are rounded to whole demo quantities.

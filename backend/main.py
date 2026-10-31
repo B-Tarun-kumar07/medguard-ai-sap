@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend import db
-from backend.api import core_router, procurement_router, review_router, settings_router, shipment_router, workflow_router
+from backend.api import core_router, procurement_router, review_router, settings_router, shipment_router, tenant_router, workflow_router
 from backend.api.admin_report import router as admin_report_router
 
 app = FastAPI(
@@ -24,6 +24,7 @@ app.add_middleware(
 db.initialize()
 for router in (core_router, workflow_router, review_router, procurement_router, shipment_router, settings_router):
     app.include_router(router)
+app.include_router(tenant_router)
 app.include_router(admin_report_router)
 
 DIST_DIR = Path(__file__).resolve().parents[1] / "dist"

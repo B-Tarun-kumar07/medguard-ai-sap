@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity, ArrowUpRight, BarChart3, Boxes, CheckCircle2, ClipboardCheck, Factory,
-  LayoutDashboard, MapPinned, RotateCcw, Settings2, ShieldPlus, Truck, Wifi,
+  LayoutDashboard, LogOut, MapPinned, PackagePlus, RotateCcw, Settings2, ShieldPlus, Truck, Wifi,
 } from "lucide-react";
 import { api } from "./api";
 import { ErrorBanner, LoadingState, formatDate } from "./components";
@@ -13,10 +13,13 @@ import Transportation from "./pages/Transportation";
 import Approvals from "./pages/Approvals";
 import Audit from "./pages/Audit";
 import Settings from "./pages/Settings";
+import Login from "./pages/Login";
+import PharmacyWorkspace from "./pages/PharmacyWorkspace";
 
 const navigation = [
   { id: "overview", label: "Overview", icon: LayoutDashboard, group: "Workspace" },
   { id: "inventory", label: "Hospital inventory", icon: Boxes, group: "Workspace" },
+  { id: "pharmacy", label: "My pharmacy workspace", icon: PackagePlus, group: "Workspace" },
   { id: "disruption", label: "Disruption center", icon: Activity, group: "Response" },
   { id: "recommendations", label: "AI recommendations", icon: ArrowUpRight, group: "Response" },
   { id: "transportation", label: "Transportation", icon: Truck, group: "Response" },
@@ -41,6 +44,8 @@ export default function App() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [reviewer, setReviewer] = useState("Clinical Supply Lead");
+  const [user, setUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -60,6 +65,10 @@ export default function App() {
 
   useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => {
+    if (!api.sessionToken) { setAuthChecked(true); return; }
+    api.me().then(setUser).catch(() => api.setSession("")).finally(() => setAuthChecked(true));
+  }, []);
+  useEffect(() => {
     if (!toast) return undefined;
     const timer = window.setTimeout(() => setToast(""), 4200);
     return () => window.clearTimeout(timer);
@@ -77,12 +86,13 @@ export default function App() {
     }
   }, [refresh]);
 
-  const pageProps = useMemo(() => ({ data, refresh, run, notify: setToast, reviewer, setReviewer, navigate: setActive }), [data, refresh, run, reviewer]);
+  const pageProps = useMemo(() => ({ data, refresh, run, notify: setToast, reviewer, setReviewer, navigate: setActive, user }), [data, refresh, run, reviewer, user]);
 
   function renderPage() {
     if (loading) return <LoadingState />;
     switch (active) {
       case "inventory": return <Inventory {...pageProps} />;
+      case "pharmacy": return <PharmacyWorkspace {...pageProps} />;
       case "disruption": return <Disruption {...pageProps} />;
       case "recommendations": return <Recommendations {...pageProps} />;
       case "transportation": return <Transportation {...pageProps} />;
@@ -94,6 +104,14 @@ export default function App() {
   }
 
   const pending = data.overview?.pending_approvals || 0;
+
+  if (!authChecked) return <LoadingState label="Checking local demo session" />;
+  if (!user) return <Login onLogin={(signedInUser) => { setUser(signedInUser); setReviewer(signedInUser.display_name); setActive("pharmacy"); }} />;
+
+  async function signOut() {
+    try { await api.logout(); } catch { /* local session may already have expired */ }
+    api.setSession(""); setUser(null); setActive("overview"); setToast("");
+  }
 
   return (
     <div className="app-shell">
@@ -126,7 +144,7 @@ export default function App() {
         </div>
         <div className="sidebar-bottom">
           <div className="agent-health"><span className="online-dot" /><div><strong>Agent network</strong><small>{data.health?.status === "ok" ? "All systems operational" : "Connecting to local API"}</small></div><Wifi size={15} /></div>
-          <div className="profile-row"><div className="profile-avatar">CS</div><div><strong>Clinical Supply Lead</strong><small>Demo reviewer</small></div><span>•••</span></div>
+          <button className="profile-row profile-button" onClick={signOut} title="Sign out"><div className="profile-avatar">{user.display_name.slice(0,2).toUpperCase()}</div><div><strong>{user.display_name}</strong><small>{user.role}</small></div><LogOut size={15}/></button>
         </div>
       </aside>
 

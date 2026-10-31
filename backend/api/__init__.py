@@ -5,9 +5,10 @@ from .review import router as review_router
 from .procurement import router as procurement_router
 from .shipments import router as shipment_router
 from .settings import router as settings_router
+from .tenant import router as tenant_router
 
 __all__ = [
     "DecisionRequest", "ProcurementRequest", "ScenarioRequest", "SettingsRequest",
     "core_router", "workflow_router", "review_router", "procurement_router",
-    "shipment_router", "settings_router",
+    "shipment_router", "settings_router", "tenant_router",
 ]

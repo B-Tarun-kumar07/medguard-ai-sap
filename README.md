@@ -192,11 +192,25 @@ npm run build
 
 ## Integrations, deployment, and limitations
 
+### SAP Integration Suite adapter
+
+Shipment status changes can optionally be sent to a deployed SAP Integration Suite iFlow. The local demo continues to work without SAP credentials; when the four backend environment variables below are present, status events are sent with OAuth 2.0 client credentials. No SAP credentials are stored in source control or the browser. See `.env.example` for the variable names.
+
+~~~powershell
+$env:SAP_INTEGRATION_SUITE_SHIPMENT_URL = "https://your-integration-suite-host/http/medguard/shipment-events"
+$env:SAP_OAUTH_TOKEN_URL = "https://your-auth-host/oauth/token"
+$env:SAP_OAUTH_CLIENT_ID = "your-client-id"
+$env:SAP_OAUTH_CLIENT_SECRET = "your-client-secret"
+.\.venv\Scripts\python.exe -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+~~~
+
+The iFlow should accept JSON events with `eventType: shipment.status.changed`, source, timestamp, and the shipment ID, status, source/destination IDs, medicine ID, quantity, and expected arrival. The Settings page reports whether the required values are configured. Without an SAP BTP service instance, deployed iFlow, and OAuth credentials, the adapter remains inactive. Other SAP systems below remain planned integrations.
+
 - Fictional static hospitals, quantities, supplier details, quotes, and route estimates.
 - No live traffic, GPS, weather, EMR, medicine master, cold-chain telemetry, supplier portal, purchase order, or clinical decision support.
 - Private pharmacy workspace APIs require a local signed-in session. Shared network simulation routes remain unauthenticated demo endpoints and expose fictional cross-hospital data; do not put real records in this build.
 - SQLite is for a single-machine demo. The project has not migrated to PostgreSQL/SQLAlchemy/Alembic, and does not include production identity, password reset, MFA, email verification, or deployment secrets management.
-- No Supabase, supplier, carrier, SMS/email, SAP, government, or live medicine catalogue integration is connected. Supplier quantities, order acknowledgements, and routes in the shared demo are simulated.
+- No Supabase, supplier, carrier, SMS/email, SAP IBP, SAP Ariba, SAP Transportation Management, SAP Build Process Automation, Joule, government, or live medicine catalogue integration is connected. The SAP Integration Suite adapter is optional and remains inactive until configured. Supplier quantities, order acknowledgements, and routes in the shared demo are simulated.
 - The local demo admin key protects only the workbook endpoint; it is not an account role or a production authorization system.
 - A Render Docker Blueprint is configured for a persistent-disk demo deployment, but no Render account has been connected and no cloud deployment has been created yet. A managed database, identity provider, and authorized supplier/carrier APIs remain unconfigured.
 - This prototype is not a clinical tool and does not claim legal or regulatory compliance. A healthcare security, privacy, and regulatory review is required before using real pharmacy operations.

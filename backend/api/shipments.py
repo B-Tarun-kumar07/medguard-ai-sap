@@ -1,10 +1,11 @@
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from backend import db
 from backend.api.common import days_until
+from backend.integrations.sap import publish_shipment_status
 
 router = APIRouter(prefix="/api")
 
@@ -165,6 +166,7 @@ def update_shipment_tracking(
 @router.post("/shipments/{shipment_id}/advance")
 def advance_shipment(
     shipment_id: str,
+    background_tasks: BackgroundTasks,
     status: Literal["Dispatched", "In Transit", "Delayed", "Delivered"] = Query(...),
 ):
     with db.connect() as connection:
@@ -243,4 +245,16 @@ def advance_shipment(
                 "quantity": float(shipment["quantity"]), "simulated": True,
             },
         )
+        current_shipment = connection.execute(
+            "SELECT expected_arrival FROM shipments WHERE id=?", (shipment_id,)
+        ).fetchone()
+        background_tasks.add_task(publish_shipment_status, {
+            "shipment_id": shipment_id,
+            "status": status,
+            "source": shipment["source_label"],
+            "destination_id": shipment["destination_id"],
+            "medicine_id": shipment["medicine_id"],
+            "quantity": float(shipment["quantity"]),
+            "expected_arrival": current_shipment["expected_arrival"],
+        })
         return {"shipment_id": shipment_id, "status": status, "message": "Shipment and audit log updated."}

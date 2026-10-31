@@ -22,7 +22,11 @@ export default function Settings({ data, run }) {
   const [provider, setProvider] = useState(null);
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState("");
+  const [sapIntegration, setSapIntegration] = useState(null);
   useEffect(() => { if (data.settings) setForm(data.settings); }, [data.settings]);
+  useEffect(() => {
+    api.sapIntegrationStatus().then(setSapIntegration).catch(() => setSapIntegration(null));
+  }, []);
 
   function update(key, value) { setForm((current) => ({ ...current, [key]: value })); }
 
@@ -95,14 +99,26 @@ export default function Settings({ data, run }) {
         </Card>
       </div>
 
-      <Card title="SAP extension points" subtitle="Adapter boundaries only · no SAP credentials or live enterprise integration are configured.">
+      <Card title="SAP Integration Suite" subtitle="Optional shipment-event integration through an SAP Integration Suite iFlow.">
+        <div className={"connection-result " + (sapIntegration?.configured ? "connection-ok" : "connection-off")}>
+          <span className={sapIntegration?.configured ? "online-dot" : "offline-dot"} />
+          <span><strong>{sapIntegration?.configured ? "Configuration complete" : "Not configured — local demo remains active"}</strong>
+            <small>{sapIntegration?.configured
+              ? "Shipment status changes will be sent to the configured Integration Suite endpoint."
+              : "Set the SAP OAuth and iFlow endpoint variables on the backend to enable shipment events."}</small>
+          </span>
+        </div>
+        {sapIntegration?.missing_settings?.length > 0 && <p className="provider-limit">Missing backend settings: {sapIntegration.missing_settings.join(", ")}</p>}
+      </Card>
+
+      <Card title="Other SAP extension points" subtitle="Additional SAP products can be added as separate adapters when a tenant and API are available.">
         <div className="sap-adapter-grid">
           {sapSystems.map((item) => {
             const Icon = item.icon;
             return <div className="sap-adapter" key={item.name}><span className="sap-adapter-icon"><Icon size={17} /></span><div><div className="sap-adapter-title"><strong>{item.name}</strong><Badge tone="neutral">Planned adapter</Badge></div><span>{item.area}</span><p>{item.adapter}</p></div></div>;
           })}
         </div>
-        <div className="sap-disclaimer"><ShieldCheck size={15} /><span>MedGuard does not claim to connect to SAP IBP, SAP Ariba, SAP Transportation Management, or Joule. Add documented API credentials and verify access before replacing demo adapters.</span></div>
+        <div className="sap-disclaimer"><ShieldCheck size={15} /><span>SAP IBP, SAP Ariba, SAP Transportation Management, and Joule remain planned adapters. The Integration Suite connector only forwards configured shipment status events.</span></div>
       </Card>
 
       <Card title="Learning resources referenced" subtitle="Based on the Learning Assets page in the supplied Participant Guide.">

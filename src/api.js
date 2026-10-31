@@ -38,6 +38,7 @@ export const api = {
   audit: () => request("/audit"),
   analytics: () => request("/analytics"),
   settings: () => request("/settings"),
+  sapIntegrationStatus: () => request("/integrations/sap/status"),
   simulate: (scenario) => request("/disruptions/simulate", { method: "POST", body: { scenario } }),
   reset: () => request("/demo/reset", { method: "POST" }),
   decide: (id, body) => request("/approvals/" + encodeURIComponent(id) + "/decision", { method: "POST", body }),

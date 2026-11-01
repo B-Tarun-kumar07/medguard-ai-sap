@@ -19,7 +19,7 @@ DEFAULT_HOST = "64e8c26b-3e07-47e9-b246-617058b0306e.hna3.prod-eu10.hanacloud.on
 def configuration_status() -> dict:
     required = ("SAP_HANA_USER", "SAP_HANA_PASSWORD")
     missing = [key for key in required if not os.getenv(key)]
-    return {
+    status = {
         "provider": "SAP HANA Cloud",
         "configured": not missing,
         "missing_settings": missing,
@@ -27,6 +27,18 @@ def configuration_status() -> dict:
         "port": int(os.getenv("SAP_HANA_PORT", "443")),
         "event_type": "shipment.status.changed",
     }
+    try:
+        from backend import db
+        with db.connect() as connection:
+            counts = {row["status"]: row["total"] for row in connection.execute(
+                "SELECT status,COUNT(*) AS total FROM hana_event_outbox GROUP BY status"
+            ).fetchall()}
+        status["outbox_pending"] = counts.get("pending", 0)
+        status["outbox_sent"] = counts.get("sent", 0)
+    except Exception:
+        status["outbox_pending"] = 0
+        status["outbox_sent"] = 0
+    return status
 
 
 def test_connection() -> dict:
@@ -73,12 +85,10 @@ def test_connection() -> dict:
                 pass
 
 
-def publish_shipment_status(event: dict) -> None:
-    """Append an event to MEDGUARD_SHIPMENT_EVENTS in the configured HANA schema."""
+def _deliver_event(event_id: str, event: dict) -> bool:
     status = configuration_status()
     if not status["configured"]:
-        logger.info("SAP HANA is not configured; shipment event was not sent.")
-        return
+        return False
 
     try:
         from hdbcli import dbapi
@@ -111,15 +121,79 @@ def publish_shipment_status(event: dict) -> None:
                 "shipment": event,
             }
             cursor.execute(
-                """INSERT INTO MEDGUARD_SHIPMENT_EVENTS
+                """UPSERT MEDGUARD_SHIPMENT_EVENTS
                    (EVENT_ID, SHIPMENT_ID, SHIPMENT_STATUS, OCCURRED_AT, EVENT_JSON)
-                   VALUES (?, ?, ?, CURRENT_UTCTIMESTAMP, ?)""",
-                (str(uuid4()), str(event.get("shipment_id", "unknown")), str(event.get("status", "unknown")), json.dumps(payload)),
+                   VALUES (?, ?, ?, CURRENT_UTCTIMESTAMP, ?) WITH PRIMARY KEY""",
+                (event_id, str(event.get("shipment_id", "unknown")), str(event.get("status", "unknown")), json.dumps(payload)),
             )
             connection.commit()
             cursor.close()
         finally:
             connection.close()
         logger.info("Sent shipment status event to SAP HANA for shipment %s.", event.get("shipment_id"))
+        return True
     except Exception as error:  # external adapter must not fail the local shipment flow
         logger.error("Could not send shipment event to SAP HANA: %s", error)
+        return False
+
+
+def _try_send_outbox_item(event_id: str, event: dict) -> bool:
+    from backend import db
+
+    sent = _deliver_event(event_id, event)
+    with db.connect() as connection:
+        if sent:
+            connection.execute(
+                "UPDATE hana_event_outbox SET status='sent',sent_at=?,last_error=NULL WHERE event_id=?",
+                (db.now_iso(), event_id),
+            )
+        else:
+            connection.execute(
+                "UPDATE hana_event_outbox SET attempts=attempts+1,last_error=? WHERE event_id=?",
+                ("HANA is not configured or could not be reached.", event_id),
+            )
+    return sent
+
+
+def publish_shipment_status(event: dict) -> None:
+    """Persist shipment events locally, then best-effort deliver them to HANA."""
+    from backend import db
+
+    event_id = str(event.get("event_id") or uuid4())
+    with db.connect() as connection:
+        connection.execute(
+            "INSERT OR IGNORE INTO hana_event_outbox(event_id,event_json,status,created_at) VALUES(?,?, 'pending',?)",
+            (event_id, json.dumps(event, ensure_ascii=False), db.now_iso()),
+        )
+    _try_send_outbox_item(event_id, event)
+
+
+def outbox_status(limit: int = 20) -> dict:
+    from backend import db
+
+    with db.connect() as connection:
+        counts = {row["status"]: row["total"] for row in connection.execute(
+            "SELECT status,COUNT(*) AS total FROM hana_event_outbox GROUP BY status"
+        ).fetchall()}
+        events = connection.execute(
+            "SELECT event_id,event_json,status,attempts,last_error,created_at,sent_at "
+            "FROM hana_event_outbox ORDER BY created_at DESC LIMIT ?", (limit,),
+        ).fetchall()
+    return {
+        "pending": counts.get("pending", 0), "sent": counts.get("sent", 0),
+        "events": [{**dict(row), "event": json.loads(row["event_json"])} for row in events],
+    }
+
+
+def retry_pending_events() -> dict:
+    from backend import db
+
+    with db.connect() as connection:
+        rows = connection.execute(
+            "SELECT event_id,event_json FROM hana_event_outbox WHERE status='pending' ORDER BY created_at"
+        ).fetchall()
+    sent = sum(1 for row in rows if _try_send_outbox_item(row["event_id"], json.loads(row["event_json"])))
+    result = outbox_status()
+    result["retried"] = len(rows)
+    result["sent_now"] = sent
+    return result

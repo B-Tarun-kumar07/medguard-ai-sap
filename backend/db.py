@@ -124,6 +124,10 @@ CREATE TABLE IF NOT EXISTS purchase_order_items (
   id TEXT PRIMARY KEY, purchase_order_id TEXT NOT NULL, medicine_id TEXT NOT NULL, quantity REAL NOT NULL,
   unit_price REAL, FOREIGN KEY(purchase_order_id) REFERENCES purchase_orders(id)
 );
+CREATE TABLE IF NOT EXISTS hana_event_outbox (
+  event_id TEXT PRIMARY KEY, event_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, created_at TEXT NOT NULL, sent_at TEXT
+);
 """
 
 

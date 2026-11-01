@@ -4,19 +4,34 @@ from backend import db
 from backend.agents.llm import check_ollama
 from backend.api.common import SettingsRequest
 from backend.integrations.sap import configuration_status
-from backend.integrations.sap_hana import configuration_status as hana_configuration_status, test_connection as test_hana_connection
+from backend.integrations.sap_hana import configuration_status as hana_configuration_status, outbox_status as hana_outbox_status, retry_pending_events as retry_hana_events, test_connection as test_hana_connection
+from backend.integrations.sap_build_process_automation import configuration_status as bpa_configuration_status
 
 router = APIRouter(prefix="/api")
 
 
 @router.get("/integrations/sap/status")
 def sap_integration_status():
-    return {"integration_suite": configuration_status(), "hana": hana_configuration_status()}
+    return {
+        "integration_suite": configuration_status(),
+        "hana": hana_configuration_status(),
+        "build_process_automation": bpa_configuration_status(),
+    }
 
 
 @router.post("/integrations/sap/hana/check")
 def check_sap_hana_connection():
     return test_hana_connection()
+
+
+@router.get("/integrations/sap/hana/outbox")
+def get_sap_hana_outbox():
+    return hana_outbox_status()
+
+
+@router.post("/integrations/sap/hana/outbox/retry")
+def retry_sap_hana_outbox():
+    return retry_hana_events()
 
 
 @router.get("/settings")

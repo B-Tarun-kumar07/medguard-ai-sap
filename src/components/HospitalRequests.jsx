@@ -36,13 +36,14 @@ export default function HospitalRequests({ hospitalId, inventory, canWrite, run 
   useEffect(() => {
     if (!hospitalId || !form.medicine_id) return;
     let active = true;
-    api.requestOptions(hospitalId, form.medicine_id).then((result) => { if (active) setDonors(result); })
+    api.requestOptions(hospitalId, form.medicine_id, Math.max(1, Number(form.quantity) || 1)).then((result) => { if (active) setDonors(result); })
       .catch((error) => { if (active) console.error("Could not load donor hospitals:", error); });
     return () => { active = false; };
-  }, [hospitalId, form.medicine_id]);
+  }, [hospitalId, form.medicine_id, form.quantity]);
 
   const medicine = inventory.find((item) => item.medicine_id === form.medicine_id);
   const selectedDonor = donors.find((item) => item.hospital_id === form.donor_hospital_id);
+  const bestMatch = donors.find((item) => item.can_fulfill);
   const outgoing = requests.filter((item) => item.requester_hospital_id === hospitalId);
   const incoming = requests.filter((item) => item.can_respond);
 
@@ -72,7 +73,7 @@ export default function HospitalRequests({ hospitalId, inventory, canWrite, run 
 
   return (
     <div className="workspace-grid">
-      <Card title="Request medicine from a hospital" subtitle="Choose one hospital or broadcast to all hospitals. Requests are checked against donor safety stock.">
+      <Card title="Request medicine from a hospital" subtitle="See which nearby hospitals can fulfill this quantity after protecting their safety stock.">
         {lowStock.length > 0 && <div className="auth-role-strip" style={{ marginBottom: 14 }}>
           <span><strong>{lowStock.length} low-stock item{lowStock.length === 1 ? "" : "s"}</strong> at or below reorder point</span>
           <Badge tone="warning">Review now</Badge>
@@ -83,18 +84,28 @@ export default function HospitalRequests({ hospitalId, inventory, canWrite, run 
             const suggested = Math.max(1, Math.ceil(Number(selected?.reorder_point || 0) * 2 - Number(selected?.current_stock || 0)));
             setForm({ ...form, medicine_id: event.target.value, donor_hospital_id: "", quantity: String(suggested) });
           }}>
-            {inventory.map((item) => <option key={item.medicine_id} value={item.medicine_id}>{item.medicine_name}{Number(item.current_stock) <= Number(item.reorder_point) ? " Â· LOW STOCK" : ""}</option>)}
+            {inventory.map((item) => <option key={item.medicine_id} value={item.medicine_id}>{item.medicine_name}{Number(item.current_stock) <= Number(item.reorder_point) ? " · LOW STOCK" : ""}</option>)}
           </select></label>
           <label>Send request to<select value={form.donor_hospital_id} onChange={(event) => setForm({ ...form, donor_hospital_id: event.target.value })}>
             <option value="">Any hospital (broadcast)</option>
-            {donors.map((item) => <option key={item.hospital_id} value={item.hospital_id}>{item.hospital_name} Â· {fmt(item.available_quantity)} available</option>)}
+            {donors.map((item) => <option key={item.hospital_id} value={item.hospital_id}>
+              {item.recommended ? "Recommended - " : item.can_fulfill ? "Can fulfill - " : "Short by " + fmt(item.shortfall) + " - "}
+              {item.hospital_name} · {item.city}{item.estimated_distance_km == null ? "" : " · ~" + item.estimated_distance_km + " km"} · {fmt(item.available_quantity)} available
+            </option>)}
           </select></label>
           <label>Quantity ({medicine?.unit || "units"})<input type="number" min="1" step="1" required value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })}/></label>
           {medicine && <div className="auth-role-strip" style={{ margin: 0 }}>
-            <span>Current stock <strong>{fmt(medicine.current_stock)}</strong> Â· reorder point <strong>{fmt(medicine.reorder_point)}</strong></span>
+            <span>Current stock <strong>{fmt(medicine.current_stock)}</strong> · reorder point <strong>{fmt(medicine.reorder_point)}</strong></span>
           </div>}
           {selectedDonor && <div className="auth-role-strip" style={{ margin: 0 }}>
-            <span>{selectedDonor.hospital_name} can currently share up to <strong>{fmt(selectedDonor.available_quantity)} {medicine?.unit}</strong> above safety stock.</span>
+            <span>{selectedDonor.can_fulfill ? <><strong>{selectedDonor.hospital_name}</strong> can fulfill this request with <strong>{fmt(selectedDonor.available_quantity)} {medicine?.unit}</strong> shareable above safety stock{selectedDonor.estimated_distance_km == null ? "." : ` · approximately ${selectedDonor.estimated_distance_km} km away.`}</> : <><strong>{selectedDonor.hospital_name}</strong> is short by <strong>{fmt(selectedDonor.shortfall)} {medicine?.unit}</strong>; another match or broadcast may work.</>}</span>
+          </div>}
+          {!selectedDonor && bestMatch && <div className="auth-role-strip" style={{ margin: 0 }}>
+            <span>Best available match: <strong>{bestMatch.hospital_name}</strong> · {bestMatch.city} · <strong>{fmt(bestMatch.available_quantity)} {medicine?.unit}</strong> shareable{bestMatch.estimated_distance_km == null ? "" : ` · approximately ${bestMatch.estimated_distance_km} km away`}.</span>
+            <button type="button" className="button button-outline" onClick={() => setForm((current) => ({ ...current, donor_hospital_id: bestMatch.hospital_id }))}>Choose match</button>
+          </div>}
+          {!selectedDonor && !bestMatch && donors.length > 0 && <div className="auth-role-strip" style={{ margin: 0 }}>
+            <span>No single hospital can fulfill <strong>{fmt(form.quantity)} {medicine?.unit}</strong> while keeping its safety stock. You can broadcast the request for a donor to review what it can safely offer.</span>
           </div>}
           <label className="request-message">Message to hospitals<input maxLength="500" placeholder="Optional: explain the shortage or urgency" value={form.message} onChange={(event) => setForm({ ...form, message: event.target.value })}/></label>
           <button className="button button-primary" disabled={!canWrite || busy || !form.medicine_id || Number(form.quantity) < 1}>

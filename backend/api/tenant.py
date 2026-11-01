@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from backend import db
 from backend.agents.planning import days_of_stock
+from backend.integrations.sap_build_process_automation import start_medicine_request_workflow
 
 router = APIRouter(prefix="/api")
 WRITE_ROLES = {"Platform Administrator", "Pharmacy Owner", "Pharmacist / Inventory Manager", "Pharmacy Staff"}
@@ -409,19 +410,61 @@ def _available_to_share(connection, donor_hospital_id: str, medicine_id: str, ex
     return max(0.0, float(inventory["current_stock"]) - float(inventory["safety_stock"]) - float(reserved_shipments) - float(pending_requests))
 
 
+_CITY_COORDINATES = {
+    "Bengaluru": (12.9716, 77.5946),
+    "Mysuru": (12.2958, 76.6394),
+    "Mangaluru": (12.9141, 74.8560),
+}
+
+
+def _estimated_route_distance_km(origin: str, destination: str) -> int | None:
+    """Approximate city-to-city road distance for demo ranking, not live routing."""
+    import math
+
+    start, end = _CITY_COORDINATES.get(origin), _CITY_COORDINATES.get(destination)
+    if not start or not end:
+        return None
+    lat1, lon1, lat2, lon2 = map(math.radians, (*start, *end))
+    delta_lat, delta_lon = lat2 - lat1, lon2 - lon1
+    value = math.sin(delta_lat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2) ** 2
+    straight_line = 6371 * 2 * math.atan2(math.sqrt(value), math.sqrt(1 - value))
+    return round(straight_line * 1.2)
+
+
 @router.get("/tenant/{hospital_id}/request-options")
-def hospital_request_options(hospital_id: str, medicine_id: str = Query(...), user: dict = Depends(require_session)):
+def hospital_request_options(
+    hospital_id: str,
+    medicine_id: str = Query(...),
+    quantity: float = Query(default=1, gt=0),
+    user: dict = Depends(require_session),
+):
     _assert_access(user, hospital_id)
     with db.connect() as connection:
         if not connection.execute("SELECT 1 FROM medicines WHERE id=?", (medicine_id,)).fetchone():
             raise HTTPException(404, "Medicine was not found.")
+        requester = connection.execute("SELECT city FROM hospitals WHERE id=?", (hospital_id,)).fetchone()
         donors = connection.execute(
-            "SELECT h.id,h.name,h.city FROM hospitals h WHERE h.id<>? ORDER BY h.name", (hospital_id,)
+            "SELECT h.id,h.name,h.city FROM hospitals h WHERE h.id<>?", (hospital_id,)
         ).fetchall()
-        return [{
-            "hospital_id": donor["id"], "hospital_name": donor["name"], "city": donor["city"],
-            "available_quantity": _available_to_share(connection, donor["id"], medicine_id),
-        } for donor in donors]
+        matches = []
+        for donor in donors:
+            available = _available_to_share(connection, donor["id"], medicine_id)
+            distance = _estimated_route_distance_km(requester["city"], donor["city"])
+            matches.append({
+                "hospital_id": donor["id"], "hospital_name": donor["name"], "city": donor["city"],
+                "available_quantity": available, "can_fulfill": available >= quantity,
+                "shortfall": max(0, quantity - available), "estimated_distance_km": distance,
+            })
+        matches.sort(key=lambda item: (
+            not item["can_fulfill"],
+            item["estimated_distance_km"] is None,
+            item["estimated_distance_km"] if item["estimated_distance_km"] is not None else float("inf"),
+            -item["available_quantity"], item["hospital_name"].casefold(),
+        ))
+        for rank, match in enumerate(matches, start=1):
+            match["match_rank"] = rank
+            match["recommended"] = rank == 1 and match["can_fulfill"]
+        return matches
 
 
 @router.get("/tenant/{hospital_id}/requests")
@@ -486,7 +529,22 @@ def create_hospital_request(hospital_id: str, payload: HospitalMedicineRequest, 
         db.record_audit(connection, "hospital_request.created", user["display_name"],
             f"Requested {payload.quantity:g} {medicine['unit']} of {medicine['name']} from {payload.donor_hospital_id or 'any available hospital'}.",
             "hospital_request", request_id, {"requester_hospital_id": hospital_id, "donor_hospital_id": payload.donor_hospital_id, "medicine_id": payload.medicine_id})
-        return {"request_id": request_id, "status": "pending", "message": "Request sent to the selected hospital(s)."}
+
+        workflow_context = {
+            "requestId": request_id,
+            "requesterHospitalId": hospital_id,
+            "requesterHospitalName": requester["name"],
+            "donorHospitalId": payload.donor_hospital_id,
+            "medicineId": payload.medicine_id,
+            "medicineName": medicine["name"],
+            "unit": medicine["unit"],
+            "quantity": payload.quantity,
+            "status": "pending",
+            "requestedBy": user["display_name"],
+            "requestedAt": now,
+        }
+    start_medicine_request_workflow(workflow_context)
+    return {"request_id": request_id, "status": "pending", "message": "Request sent to the selected hospital(s)."}
 
 
 @router.post("/tenant/{hospital_id}/requests/{request_id}/decision")

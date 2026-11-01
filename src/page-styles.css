@@ -325,6 +325,12 @@
 .connection-result > span:last-child { display: grid; gap: 4px; }
 .connection-result strong { color: #526b58; font-weight: 600; }
 .connection-result small { color: #819087; }
+.hana-message { margin-top: 10px; }
+.hana-outbox { margin-top: 12px; padding: 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid #e5ebe6; border-radius: 6px; background: #fbfcfb; }
+.hana-outbox > div { display: grid; gap: 4px; }
+.hana-outbox strong { color: #536258; font-size: 8.8px; }
+.hana-outbox span { color: #819087; font-size: 8px; }
+.hana-outbox b { color: #4f6858; }
 .provider-limit { margin: 10px 0 0; display: flex; align-items: flex-start; gap: 6px; color: #929c96; font-size: 7.8px; line-height: 1.45; }
 .provider-limit svg { flex: 0 0 auto; }
 .settings-error { margin-top: 9px; color: #b34b49; font-size: 8.5px; }

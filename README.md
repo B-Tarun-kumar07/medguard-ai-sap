@@ -204,6 +204,10 @@ Set `SAP_HANA_HOST`, `SAP_HANA_PORT`, `SAP_HANA_USER`, and `SAP_HANA_PASSWORD` i
 
 The System settings page includes a read-only **Test HANA connection** action. It verifies network reachability, TLS, and database login without writing shipment or inventory data.
 
+### SAP Build Process Automation request workflow
+
+When configured, a new inter-hospital medicine request starts a deployed SAP Build Process Automation workflow using OAuth 2.0 client credentials. The workflow receives request identifiers, hospital names/IDs, medicine name/ID, quantity, unit, requester, status, and timestamp; the free-text request message is not sent. The local request and hospital approval flow remain the source of truth, and a BPA error does not undo the local request. Configure `SAP_BPA_API_URL` (service-key `endpoints.api` base URL), `SAP_BPA_TOKEN_URL` (service-key `uaa.url` plus `/oauth/token`), `SAP_BPA_CLIENT_ID`, `SAP_BPA_CLIENT_SECRET`, and `SAP_BPA_WORKFLOW_DEFINITION_ID` on the backend. The BTP subaccount needs a provisioned SAP Build Process Automation service and API access. The workflow must be deployed and accept the documented context fields. See `.env.example`; never commit service-key secrets.
+
 ~~~powershell
 $env:SAP_INTEGRATION_SUITE_SHIPMENT_URL = "https://your-integration-suite-host/http/medguard/shipment-events"
 $env:SAP_OAUTH_TOKEN_URL = "https://your-auth-host/oauth/token"

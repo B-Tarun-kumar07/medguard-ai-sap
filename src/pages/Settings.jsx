@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { BookOpen, Check, CircleHelp, CloudCog, Database, ExternalLink, RefreshCw, Save, ServerCog, Settings2, ShieldCheck, Sparkles } from "lucide-react";
+import { Button as FioriButton, MessageStrip, ObjectStatus } from "@ui5/webcomponents-react";
 import { api } from "../api";
 import { Badge, Card, PageHeading } from "../components";
 
@@ -24,14 +25,20 @@ export default function Settings({ data, run }) {
   const [checkError, setCheckError] = useState("");
   const [sapIntegration, setSapIntegration] = useState(null);
   const [sapHana, setSapHana] = useState(null);
+  const [sapBpa, setSapBpa] = useState(null);
   const [hanaCheck, setHanaCheck] = useState(null);
   const [checkingHana, setCheckingHana] = useState(false);
+  const [hanaOutbox, setHanaOutbox] = useState(null);
+  const [retryingHana, setRetryingHana] = useState(false);
+  const [hanaRetryMessage, setHanaRetryMessage] = useState("");
   useEffect(() => { if (data.settings) setForm(data.settings); }, [data.settings]);
   useEffect(() => {
     api.sapIntegrationStatus().then((status) => {
       setSapIntegration(status.integration_suite);
       setSapHana(status.hana);
-    }).catch(() => { setSapIntegration(null); setSapHana(null); });
+      setSapBpa(status.build_process_automation);
+    }).catch(() => { setSapIntegration(null); setSapHana(null); setSapBpa(null); });
+    api.hanaOutbox().then(setHanaOutbox).catch(() => setHanaOutbox(null));
   }, []);
 
   function update(key, value) { setForm((current) => ({ ...current, [key]: value })); }
@@ -66,9 +73,25 @@ export default function Settings({ data, run }) {
   async function checkHana() {
     setCheckingHana(true);
     setHanaCheck(null);
-    try { setHanaCheck(await api.checkSapHana()); }
+    try {
+      setHanaCheck(await api.checkSapHana());
+      setHanaOutbox(await api.hanaOutbox());
+    }
     catch (error) { setHanaCheck({ connected: false, message: error.message || "Could not check SAP HANA." }); }
     finally { setCheckingHana(false); }
+  }
+
+  async function retryHana() {
+    setRetryingHana(true);
+    setHanaRetryMessage("");
+    try {
+      const result = await api.retryHanaOutbox();
+      setHanaOutbox(result);
+      setHanaRetryMessage(result.sent_now
+        ? `Sent ${result.sent_now} queued event${result.sent_now === 1 ? "" : "s"} to HANA.`
+        : result.pending ? "HANA is still unreachable; queued events remain saved locally." : "No pending shipment events.");
+    } catch (error) { setHanaRetryMessage(error.message || "Could not retry HANA events."); }
+    finally { setRetryingHana(false); }
   }
 
   return (
@@ -115,8 +138,10 @@ export default function Settings({ data, run }) {
 
       <Card title="SAP Integration Suite" subtitle="Optional shipment-event integration through an SAP Integration Suite iFlow.">
         <div className={"connection-result " + (sapIntegration?.configured ? "connection-ok" : "connection-off")}>
-          <span className={sapIntegration?.configured ? "online-dot" : "offline-dot"} />
-          <span><strong>{sapIntegration?.configured ? "Configuration complete" : "Not configured — local demo remains active"}</strong>
+          <ObjectStatus state={sapIntegration?.configured ? "Positive" : "Critical"} showDefaultIcon>
+            {sapIntegration?.configured ? "Configuration complete" : "Not configured — local demo remains active"}
+          </ObjectStatus>
+          <span>
             <small>{sapIntegration?.configured
               ? "Shipment status changes will be sent to the configured Integration Suite endpoint."
               : "Set the SAP OAuth and iFlow endpoint variables on the backend to enable shipment events."}</small>
@@ -125,10 +150,27 @@ export default function Settings({ data, run }) {
         {sapIntegration?.missing_settings?.length > 0 && <p className="provider-limit">Missing backend settings: {sapIntegration.missing_settings.join(", ")}</p>}
       </Card>
 
+      <Card title="SAP Build Process Automation" subtitle="Optional workflow trigger when a hospital submits a medicine request.">
+        <div className={"connection-result " + (sapBpa?.configured ? "connection-ok" : "connection-off")}>
+          <ObjectStatus state={sapBpa?.configured ? "Positive" : "Critical"} showDefaultIcon>
+            {sapBpa?.configured ? "Configuration complete" : "Not configured — local requests remain active"}
+          </ObjectStatus>
+          <span>
+            <small>{sapBpa?.configured
+              ? "New medicine requests will also start the configured SAP workflow. Local requests and approvals remain the source of truth."
+              : "Configure the BPA service endpoint, OAuth client, and deployed workflow ID on the backend to enable workflow triggers."}</small>
+          </span>
+        </div>
+        {sapBpa?.missing_settings?.length > 0 && <p className="provider-limit">Missing backend settings: {sapBpa.missing_settings.join(", ")}</p>}
+        <p className="provider-limit"><CircleHelp size={14} />The SAP workflow is an optional approval process; it does not approve requests or change inventory by itself.</p>
+      </Card>
+
       <Card title="SAP HANA Cloud" subtitle="Optional direct shipment-event log in your Hackfest HANA database.">
         <div className={"connection-result " + (sapHana?.configured ? "connection-ok" : "connection-off")}>
-          <span className={sapHana?.configured ? "online-dot" : "offline-dot"} />
-          <span><strong>{sapHana?.configured ? "Credentials configured" : "Not configured — local demo remains active"}</strong>
+          <ObjectStatus state={sapHana?.configured ? "Positive" : "Critical"} showDefaultIcon>
+            {sapHana?.configured ? "Credentials configured" : "Not configured — local demo remains active"}
+          </ObjectStatus>
+          <span>
             <small>{sapHana?.configured
               ? `Shipment status events will be written to the configured HANA endpoint on port ${sapHana.port}.`
               : "Set SAP_HANA_USER and SAP_HANA_PASSWORD on the backend. The connection uses encrypted TLS on port 443."}</small>
@@ -136,14 +178,23 @@ export default function Settings({ data, run }) {
         </div>
         {sapHana?.missing_settings?.length > 0 && <p className="provider-limit">Missing backend settings: {sapHana.missing_settings.join(", ")}</p>}
         <div className="provider-actions">
-          <button className="button button-outline" onClick={checkHana} disabled={checkingHana || !sapHana?.configured}>
-            {checkingHana ? <span className="spinner" /> : <RefreshCw size={14} />}Test HANA connection
-          </button>
+          <FioriButton design="Default" onClick={checkHana} disabled={checkingHana || !sapHana?.configured}>
+            {checkingHana ? "Testing HANA…" : "Test HANA connection"}
+          </FioriButton>
         </div>
-        {hanaCheck && <div className={"connection-result " + (hanaCheck.connected ? "connection-ok" : "connection-off")} role="status">
-          <span className={hanaCheck.connected ? "online-dot" : "offline-dot"} /><span><strong>{hanaCheck.connected ? "HANA connection successful" : "HANA connection failed"}</strong><small>{hanaCheck.message}</small></span>
+        {hanaCheck && <div className="hana-message" role="status">
+          <MessageStrip design={hanaCheck.connected ? "Positive" : "Negative"} hideCloseButton>
+            <strong>{hanaCheck.connected ? "HANA connection successful. " : "HANA connection failed. "}</strong>{hanaCheck.message}
+          </MessageStrip>
         </div>}
-        <p className="provider-limit"><CircleHelp size={14} />The backend creates MEDGUARD_SHIPMENT_EVENTS if your database user has table-creation permission. HANA errors never stop local shipment updates.</p>
+        <div className="hana-outbox">
+          <div><strong>Shipment event delivery</strong><span><b>{hanaOutbox?.pending ?? sapHana?.outbox_pending ?? 0}</b> waiting · <b>{hanaOutbox?.sent ?? sapHana?.outbox_sent ?? 0}</b> sent to HANA</span></div>
+          <FioriButton design="Default" onClick={retryHana} disabled={retryingHana || !((hanaOutbox?.pending ?? sapHana?.outbox_pending) > 0)}>
+            {retryingHana ? "Retrying…" : "Retry pending events"}
+          </FioriButton>
+        </div>
+        {hanaRetryMessage && <div className="settings-error" role="status">{hanaRetryMessage}</div>}
+        <p className="provider-limit"><CircleHelp size={14} />Pending events stay in local SQLite and can be retried here. HANA uses a stable event ID so retries do not create duplicate rows. HANA errors never stop local shipment updates.</p>
       </Card>
 
       <Card title="Other SAP extension points" subtitle="Additional SAP products can be added as separate adapters when a tenant and API are available.">
